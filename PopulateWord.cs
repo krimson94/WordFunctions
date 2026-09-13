@@ -8,6 +8,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using System.Text.RegularExpressions;
 using System.Text;
+using HtmlToOpenXml;
 namespace WordFunctions;
 
 public class PopulateWord(ILogger<PopulateWord> logger)
@@ -39,7 +40,7 @@ public class PopulateWord(ILogger<PopulateWord> logger)
                 var tokenText = $"{token.Key}";
                 var valueText = token.Value?.ToString() ?? string.Empty;
                 Console.WriteLine($"Replacing token: {token.Key} with value: {token.Value}");
-                ReplaceContentControlText(body, tokenText, valueText);
+                ReplaceContentControlRichText(wordDoc.MainDocumentPart, body, tokenText, valueText);
             }
             wordDoc.MainDocumentPart.Document.Save();
         }
@@ -56,28 +57,47 @@ public class PopulateWord(ILogger<PopulateWord> logger)
         return new OkObjectResult(responsePayload);
     }
 
-    private static void ReplaceContentControlText(Body body, string tag, string value)
+    private static void ReplaceContentControlRichText(MainDocumentPart mainPart, Body body, string tag, string htmlValue)
     {
         var contentControls = body.Descendants<SdtElement>()
             .Where(sdt => sdt.SdtProperties?.GetFirstChild<Tag>()?.Val?.Value == tag)
             .ToList();
         Console.WriteLine($"Found {contentControls.Count} content controls for tag '{tag}'.");
+
+        Console.WriteLine(htmlValue);
+        HtmlConverter converter = new(mainPart);
         foreach (var sdt in contentControls)
         {
-            var textNodes = sdt.Descendants<Text>().ToList();
-            Console.WriteLine($"Found text nodes for tag '{tag}': {textNodes.Count}");
-            if (textNodes.Count != 0)
-            {
-                textNodes.First().Text = value;
 
-                foreach (var textNode in textNodes.Skip(1))
-                {
-                    textNode.Text = string.Empty;
-                }
-            }
-            else
+            var compositeElements = converter.Parse(htmlValue);
+
+            #pragma warning disable CS8600 
+            OpenXmlElement sdtContent = sdt.GetFirstChild<SdtContentBlock>()
+                ?? (OpenXmlElement)sdt.GetFirstChild<SdtContentRun>()
+                ?? sdt.GetFirstChild<SdtContentCell>();
+            #pragma warning restore CS8600
+
+            if (sdtContent != null)
             {
-                sdt.AppendChild(new SdtContentRun(new Run(new Text(value))));
+                foreach (var element in compositeElements)
+                {
+                    if (sdtContent is SdtContentRun && element is Paragraph p)
+                    {
+                        Console.WriteLine($"Replacing content control with a run containing a paragraph for tag '{tag}'.");
+                        foreach (var run in p.Elements<Run>().ToList())
+                        {
+                            p.RemoveChild(run);
+                            sdtContent.RemoveAllChildren();
+                            sdtContent.AppendChild(run);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Replacing content control with a block element for tag '{tag}'.");
+                        sdtContent.RemoveAllChildren();
+                        sdtContent.AppendChild(element);
+                    }
+                }
             }
         }
     }

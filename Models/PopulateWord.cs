@@ -11,8 +11,8 @@ namespace WordFunctions
 
     public class TokenReplacement
     {
-        public required string Token { get; set; }      // e.g., "[Requestor]"
-        public required string Value { get; set; }      // e.g., "<b>John Doe</b>"
+        public required string Token { get; set; }
+        public required string Value { get; set; }
     }
 
     public class DocumentResponse
